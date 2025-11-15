@@ -2,6 +2,18 @@ import streamlit as st
 import sqlite3
 import pandas as pd
 
+# Проверка пароля для редактирования
+if 'authenticated' not in st.session_state:
+    st.session_state.authenticated = False
+
+if not st.session_state.authenticated:
+    password = st.text_input("Введите пароль для редактирования:", type="password")
+    if password == "мой_пароль":  # замените на ваш пароль
+        st.session_state.authenticated = True
+        st.rerun()
+    else:
+        st.stop()  # Останавливаем выполнение если пароль неверный
+
 def migrate_db():
     """Обновляет структуру базы данных если она старая"""
     conn = sqlite3.connect('words.db')
