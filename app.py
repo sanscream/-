@@ -6,7 +6,7 @@ import csv
 import io
 from datetime import datetime
 
-# Функция для проверки пароля
+# Функция для проверки пароля (пароль теперь в секретах Streamlit)
 def check_password(password):
     correct_password = st.secrets.get("EDIT_PASSWORD", "default_password")
     return password == correct_password
@@ -28,7 +28,7 @@ def init_db():
          forms TEXT,
          translation TEXT,
          comments TEXT,
-         FOREIGN KEY (text_id) REFERENCES texts (id))
+         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)
     ''')
     
     # Автоматически создаем тексты если их нет
@@ -47,32 +47,13 @@ def migrate_db():
     # Проверяем существующие таблицы
     c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='words'")
     if c.fetchone():
-        # Проверяем есть ли колонка text_id
+        # Проверяем есть ли колонка created_at
         c.execute("PRAGMA table_info(words)")
         columns = [col[1] for col in c.fetchall()]
         
-        if 'text_id' not in columns:
-            # Старая структура - нужно мигрировать
-            st.warning("Обновляем структуру базы данных...")
-            
-            # Создаем новую таблицу с правильной структуряой
-            c.execute('''
-                CREATE TABLE words_new 
-                (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                 text_id INTEGER,
-                 lemma TEXT NOT NULL,
-                 forms TEXT,
-                 translation TEXT,
-                 comments TEXT)
-            ''')
-            
-            # Переносим все старые данные в text_id = 1 (Текст1)
-            c.execute("INSERT INTO words_new (text_id, lemma, forms, translation, comments) SELECT 1, lemma, forms, translation, comments FROM words")
-            
-            # Удаляем старую таблицу и переименовываем новую
-            c.execute("DROP TABLE words")
-            c.execute("ALTER TABLE words_new RENAME TO words")
-            
+        if 'created_at' not in columns:
+            # Добавляем колонку created_at
+            c.execute("ALTER TABLE words ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
             st.success("База данных обновлена!")
     
     conn.commit()
@@ -124,7 +105,7 @@ def export_data():
     texts_df = pd.read_sql("SELECT * FROM texts", conn)
     
     # Получаем слова
-    words_df = pd.read_sql("SELECT * FROM words", conn)
+    words_df = pd.read_sql("SELECT * FROM words ORDER BY created_at", conn)  # Старые сверху
     
     conn.close()
     
@@ -145,7 +126,7 @@ def export_csv():
         SELECT w.*, t.name as text_name 
         FROM words w 
         LEFT JOIN texts t ON w.text_id = t.id
-        ORDER BY t.name, w.lemma
+        ORDER BY w.created_at  -- Старые сверху
     ''', conn)
     
     conn.close()
@@ -254,7 +235,13 @@ with st.sidebar:
     if not words_by_text.empty:
         with st.expander("Слова по текстам"):
             for _, row in words_by_text.iterrows():
-                st.write(f"**{row['name']}:** {row['word_count']} слов")
+                st.write(f"{row['name']}: {row['word_count']} слов")
+    
+    st.write("---")
+    
+    # Информация о сортировке
+    st.header("Порядок слов")
+    st.info("Старые слова → сверху\nНовые слова → снизу")
     
     st.write("---")
     
@@ -398,14 +385,16 @@ if not texts_df.empty:
             search = st.text_input(f"Поиск в '{text['name']}'", key=f"search_{text['id']}")
             
             conn = sqlite3.connect('words.db')
+            
+            # ФИКСИРОВАННАЯ СОРТИРОВКА: старые сверху, новые снизу
             if search:
                 words = pd.read_sql(
-                    "SELECT * FROM words WHERE text_id = ? AND (lemma LIKE ? OR translation LIKE ?) ORDER BY lemma",
+                    "SELECT * FROM words WHERE text_id = ? AND (lemma LIKE ? OR translation LIKE ?) ORDER BY created_at",
                     conn, params=(text['id'], f'%{search}%', f'%{search}%')
                 )
             else:
                 words = pd.read_sql(
-                    "SELECT * FROM words WHERE text_id = ? ORDER BY lemma",
+                    "SELECT * FROM words WHERE text_id = ? ORDER BY created_at",
                     conn, params=(text['id'],)
                 )
             conn.close()
@@ -426,9 +415,9 @@ if not texts_df.empty:
                                     delete_word(word['id'])
                                     st.rerun()
             else:
-                st.info("В этом тексте пока нет слов.")
+                st.info("📝 В этом тексте пока нет слов.")
 else:
-    st.info("Пока нет текстов.")
+    st.info("📝 Пока нет текстов.")
 
 # Сообщение о режиме внизу
 st.write("---")
