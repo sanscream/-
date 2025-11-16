@@ -47,14 +47,33 @@ def migrate_db():
     # Проверяем существующие таблицы
     c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='words'")
     if c.fetchone():
-        # Проверяем есть ли колонка created_at
+        # Проверяем есть ли колонка text_id
         c.execute("PRAGMA table_info(words)")
         columns = [col[1] for col in c.fetchall()]
         
-        if 'created_at' not in columns:
-            # Добавляем колонку created_at
-            c.execute("ALTER TABLE words ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
-            st.success("База данных обновлена!")
+        if 'text_id' not in columns:
+            # Старая структура - нужно мигрировать
+            st.warning("Обновляем структуру базы данных...")
+            
+            # Создаем новую таблицу с правильной структурой
+            c.execute('''
+                CREATE TABLE words_new 
+                (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 text_id INTEGER,
+                 lemma TEXT NOT NULL,
+                 forms TEXT,
+                 translation TEXT,
+                 comments TEXT)
+            ''')
+            
+            # Переносим все старые данные в text_id = 1 (Текст1)
+            c.execute("INSERT INTO words_new (text_id, lemma, forms, translation, comments) SELECT 1, lemma, forms, translation, comments FROM words")
+            
+            # Удаляем старую таблицу и переименовываем новую
+            c.execute("DROP TABLE words")
+            c.execute("ALTER TABLE words_new RENAME TO words")
+            
+            st.success("База данных обновена!")
     
     conn.commit()
     conn.close()
