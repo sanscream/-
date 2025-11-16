@@ -38,51 +38,26 @@ def init_db():
     conn.commit()
     conn.close()
 
-def migrate_db():
-    """Обновляет структуру базы данных если она старая"""
-    conn = sqlite3.connect('words.db')
-    c = conn.cursor()
-    
-    # Проверяем существующие таблицы
-    c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='words'")
-    if c.fetchone():
-        # Проверяем есть ли колонка text_id
-        c.execute("PRAGMA table_info(words)")
-        columns = [col[1] for col in c.fetchall()]
-        
-        if 'text_id' not in columns:
-            # Старая структура - нужно мигрировать
-            st.warning("Обновляем структуру базы данных...")
-            
-            # Создаем новую таблицу с правильной структурой
-            c.execute('''
-                CREATE TABLE words_new 
-                (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                 text_id INTEGER,
-                 lemma TEXT NOT NULL,
-                 forms TEXT,
-                 translation TEXT,
-                 comments TEXT)
-            ''')
-            
-            # Переносим все старые данные в text_id = 1 (Текст1)
-            c.execute("INSERT INTO words_new (text_id, lemma, forms, translation, comments) SELECT 1, lemma, forms, translation, comments FROM words")
-            
-            # Удаляем старую таблицу и переименовываем новую
-            c.execute("DROP TABLE words")
-            c.execute("ALTER TABLE words_new RENAME TO words")
-            
-            st.success("База данных обновена!")
-    
-    conn.commit()
-    conn.close()
-
 def delete_word(word_id):
     conn = sqlite3.connect('words.db')
     c = conn.cursor()
     c.execute("DELETE FROM words WHERE id = ?", (word_id,))
     conn.commit()
     conn.close()
+
+def update_word(word_id, lemma, forms, translation, comments):
+    """Обновляет слово в базе данных"""
+    conn = sqlite3.connect('words.db')
+    c = conn.cursor()
+    try:
+        c.execute("UPDATE words SET lemma = ?, forms = ?, translation = ?, comments = ? WHERE id = ?",
+                 (lemma, forms, translation, comments, word_id))
+        conn.commit()
+        return True
+    except Exception as e:
+        return False
+    finally:
+        conn.close()
 
 def add_text(text_name):
     conn = sqlite3.connect('words.db')
@@ -203,9 +178,8 @@ def get_stats():
     
     return total_words, words_by_text
 
-# Инициализируем и мигрируем базу
+# Инициализируем базу
 init_db()
-migrate_db()
 
 st.set_page_config(page_title="Греческий словарь", layout="wide")
 
@@ -273,7 +247,7 @@ with st.sidebar:
             st.rerun()
     else:
         st.success("РЕЖИМ РЕДАКТИРОВАНИЯ")
-        st.info("Вы можете добавлять и удалять слова.")
+        st.info("Вы можете добавлять, редактировать и удалять слова.")
         
         if st.button("Выйти из аккаунта"):
             st.session_state.authenticated = False
@@ -292,7 +266,7 @@ with st.sidebar:
             # Экспорт JSON
             json_data = export_data()
             st.download_button(
-                label="Скачать JSON",
+                label="📥 Скачать JSON",
                 data=json_data,
                 file_name=f"greek_dictionary_backup_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
                 mime="application/json"
@@ -333,10 +307,10 @@ with st.sidebar:
                 new_text_name = st.text_input("Название текста", placeholder="Текст6")
                 if st.form_submit_button("Добавить текст") and new_text_name:
                     if add_text(new_text_name):
-                        st.success(f"✅ Текст '{new_text_name}' добавлен!")
+                        st.success(f"Текст '{new_text_name}' добавлен!")
                         st.rerun()
                     else:
-                        st.error("❌ Текст с таким названием уже существует!")
+                        st.error("Текст с таким названием уже существует!")
         
         # Переименование текстов
         with st.expander("Переименовать текст"):
@@ -393,10 +367,10 @@ if not texts_df.empty:
                                      (text['id'], lemma, forms, translation, comments))
                             conn.commit()
                             conn.close()
-                            st.success(f"☃️ Слово '{lemma}' добавлено в '{text['name']}'!")
+                            st.success(f"Слово '{lemma}' добавлено в '{text['name']}'!")
                             st.rerun()
             else:
-                st.info("Для добавления слов требуется пароль")
+                st.info("🔒 Для добавления слов требуется пароль")
             
             # Поиск и отображение слов этого текста
             st.write("---")
@@ -418,28 +392,47 @@ if not texts_df.empty:
             conn.close()
             
             if not words.empty:
-                st.write(f"Слов в словаре: {len(words)}")
+                st.write(f"Слов в словаре:*{len(words)}")
                 for _, word in words.iterrows():
                     with st.expander(f"{word['lemma']} - {word['translation']}"):
-                        col1, col2 = st.columns([3, 1])
-                        with col1:
+                        # Режим просмотра
+                        if st.session_state.get('view_only'):
                             st.write(f"Формы: {word['forms'] or '-'}")
                             if word['comments']:
                                 st.write(f"Комментарии: {word['comments']}")
-                        with col2:
-                            # Кнопка удаления только в режиме редактирования
-                            if not st.session_state.get('view_only'):
-                                if st.button("Удалить", key=f"delete_{word['id']}"):
-                                    delete_word(word['id'])
-                                    st.rerun()
+                        
+                        # Режим редактирования
+                        else:
+                            with st.form(f"edit_word_{word['id']}"):
+                                col1, col2 = st.columns(2)
+                                
+                                with col1:
+                                    new_lemma = st.text_input("Лексема", value=word['lemma'], key=f"edit_lemma_{word['id']}")
+                                    new_forms = st.text_area("Основные формы", value=word['forms'] or "", key=f"edit_forms_{word['id']}")
+                                
+                                with col2:
+                                    new_translation = st.text_input("Перевод", value=word['translation'] or "", key=f"edit_trans_{word['id']}")
+                                    new_comments = st.text_area("Комментарии", value=word['comments'] or "", key=f"edit_comments_{word['id']}")
+                                
+                                col_btn1, col_btn2 = st.columns(2)
+                                with col_btn1:
+                                    if st.form_submit_button("💾 Сохранить"):
+                                        if update_word(word['id'], new_lemma, new_forms, new_translation, new_comments):
+                                            st.success("Слово обновлено!")
+                                            st.rerun()
+                                
+                                with col_btn2:
+                                    if st.form_submit_button("Удалить"):
+                                        delete_word(word['id'])
+                                        st.rerun()
             else:
-                st.info("📝 В этом тексте пока нет слов.")
+                st.info("В этом тексте пока нет слов.")
 else:
-    st.info("📝 Пока нет текстов.")
+    st.info("Пока нет текстов.")
 
 # Сообщение о режиме внизу
 st.write("---")
 if st.session_state.get('view_only'):
     st.info("Режим просмотра - для редактирования нажмите 'Войти с паролем' в боковой панели")
 else:
-    st.success("Режим редактирования - вы можете изменять словарь")
+    st.success("Режим редактирования - вы можете добавлять, редактировать и удалять слова")
