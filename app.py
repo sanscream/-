@@ -1,7 +1,10 @@
 import streamlit as st
 import sqlite3
 import pandas as pd
-import hashlib
+import json
+import csv
+import io
+from datetime import datetime
 
 # ПАРОЛЬ для редактирования
 EDIT_PASSWORD = "greek1234"
@@ -114,6 +117,95 @@ def get_texts():
     conn.close()
     return texts
 
+# ФУНКЦИИ ЭКСПОРТА/ИМПОРТА
+def export_data():
+    """Экспортирует все данные в JSON"""
+    conn = sqlite3.connect('words.db')
+    
+    # Получаем тексты
+    texts_df = pd.read_sql("SELECT * FROM texts", conn)
+    
+    # Получаем слова
+    words_df = pd.read_sql("SELECT * FROM words", conn)
+    
+    conn.close()
+    
+    data = {
+        'export_date': datetime.now().isoformat(),
+        'texts': texts_df.to_dict('records'),
+        'words': words_df.to_dict('records')
+    }
+    
+    return json.dumps(data, ensure_ascii=False, indent=2)
+
+def export_csv():
+    """Экспортирует слова в CSV"""
+    conn = sqlite3.connect('words.db')
+    
+    # Объединяем слова с названиями текстов
+    words_df = pd.read_sql('''
+        SELECT w.*, t.name as text_name 
+        FROM words w 
+        LEFT JOIN texts t ON w.text_id = t.id
+        ORDER BY t.name, w.lemma
+    ''', conn)
+    
+    conn.close()
+    
+    # Создаем CSV в памяти
+    output = io.StringIO()
+    words_df.to_csv(output, index=False, encoding='utf-8')
+    return output.getvalue()
+
+def import_data(json_data):
+    """Импортирует данные из JSON"""
+    try:
+        data = json.loads(json_data)
+        
+        conn = sqlite3.connect('words.db')
+        c = conn.cursor()
+        
+        # Очищаем текущие данные
+        c.execute("DELETE FROM words")
+        c.execute("DELETE FROM texts")
+        
+        # Импортируем тексты
+        for text in data['texts']:
+            c.execute("INSERT INTO texts (id, name) VALUES (?, ?)", 
+                     (text['id'], text['name']))
+        
+        # Импортируем слова
+        for word in data['words']:
+            c.execute("INSERT INTO words (id, text_id, lemma, forms, translation, comments) VALUES (?, ?, ?, ?, ?, ?)",
+                     (word['id'], word['text_id'], word['lemma'], word['forms'], word['translation'], word['comments']))
+        
+        conn.commit()
+        conn.close()
+        return True, "Данные успешно импортированы!"
+    
+    except Exception as e:
+        return False, f"Ошибка импорта: {str(e)}"
+
+def get_stats():
+    """Статистика словаря"""
+    conn = sqlite3.connect('words.db')
+    
+    # Общее количество слов
+    total_words = pd.read_sql("SELECT COUNT(*) as count FROM words", conn).iloc[0]['count']
+    
+    # Количество слов по текстам
+    words_by_text = pd.read_sql('''
+        SELECT t.name, COUNT(w.id) as word_count 
+        FROM texts t 
+        LEFT JOIN words w ON t.id = w.text_id 
+        GROUP BY t.id, t.name 
+        ORDER BY t.name
+    ''', conn)
+    
+    conn.close()
+    
+    return total_words, words_by_text
+
 # Инициализируем и мигрируем базу
 init_db()
 migrate_db()
@@ -141,7 +233,7 @@ if not st.session_state.authenticated:
                     st.session_state.authenticated = True
                     st.rerun()
                 else:
-                    st.error("❌ Неверный пароль")
+                    st.error("Неверный пароль")
         
         with col_btn2:
             if st.button("Только просмотр"):
@@ -149,13 +241,25 @@ if not st.session_state.authenticated:
                 st.session_state.view_only = True
                 st.rerun()
     
-    st.stop()  # Останавливаем выполнение дальше
+    st.stop()
 
-# ОСНОВНОЕ ПРИЛОЖЕНИЕ (после авторизации)
+# ОСНОВНОЕ ПРИЛОЖЕНИЕ
 st.title("греки греки греки")
 
 # Боковая панель
 with st.sidebar:
+    # Статистика
+    total_words, words_by_text = get_stats()
+    st.header("Статистика")
+    st.metric("Всего слов", total_words)
+    
+    if not words_by_text.empty:
+        with st.expander("Слова по текстам"):
+            for _, row in words_by_text.iterrows():
+                st.write(f"**{row['name']}:** {row['word_count']} слов")
+    
+    st.write("---")
+    
     # Статус режима
     if st.session_state.get('view_only'):
         st.error("РЕЖИМ ПРОСМОТРА")
@@ -174,6 +278,47 @@ with st.sidebar:
             st.rerun()
     
     st.write("---")
+    
+    # Резервное копирование (только в режиме редактирования)
+    if not st.session_state.get('view_only'):
+        st.header("Резервное копирование")
+        
+        with st.expander("Экспорт данных"):
+            st.info("Скачайте резервную копию вашего словаря")
+            
+            # Экспорт JSON
+            json_data = export_data()
+            st.download_button(
+                label="Скачать JSON",
+                data=json_data,
+                file_name=f"greek_dictionary_backup_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
+                mime="application/json"
+            )
+            
+            # Экспорт CSV
+            csv_data = export_csv()
+            st.download_button(
+                label="Скачать CSV",
+                data=csv_data,
+                file_name=f"greek_dictionary_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                mime="text/csv"
+            )
+        
+        with st.expander("Импорт данных"):
+            st.warning("Внимание: импорт перезапишет все текущие данные!")
+            
+            uploaded_file = st.file_uploader("Выберите JSON файл", type=['json'])
+            
+            if uploaded_file is not None:
+                json_data = uploaded_file.getvalue().decode('utf-8')
+                
+                if st.button("🔄 Импортировать данные", type="primary"):
+                    success, message = import_data(json_data)
+                    if success:
+                        st.success(message)
+                        st.rerun()
+                    else:
+                        st.error(message)
     
     # Управление текстами (только в режиме редактирования)
     if not st.session_state.get('view_only'):
@@ -248,7 +393,7 @@ if not texts_df.empty:
                             st.success(f"Слово '{lemma}' добавлено в '{text['name']}'!")
                             st.rerun()
             else:
-                st.info("🔒 Для добавления слов требуется пароль")
+                st.info("Для добавления слов требуется пароль")
             
             # Поиск и отображение слов этого текста
             st.write("---")
@@ -268,14 +413,14 @@ if not texts_df.empty:
             conn.close()
             
             if not words.empty:
-                st.write(f"**Слов в словаре:** {len(words)}")
+                st.write(f"Слов в словаре: {len(words)}")
                 for _, word in words.iterrows():
-                    with st.expander(f"**{word['lemma']}** - {word['translation']}"):
+                    with st.expander(f"word['lemma']} - {word['translation']}"):
                         col1, col2 = st.columns([3, 1])
                         with col1:
-                            st.write(f"**Формы:** {word['forms'] or '—'}")
+                            st.write(f"Формы: {word['forms'] or '-'}")
                             if word['comments']:
-                                st.write(f"**Комментарии:** {word['comments']}")
+                                st.write(f"Комментарии: {word['comments']}")
                         with col2:
                             # Кнопка удаления только в режиме редактирования
                             if not st.session_state.get('view_only'):
@@ -290,6 +435,6 @@ else:
 # Сообщение о режиме внизу
 st.write("---")
 if st.session_state.get('view_only'):
-    st.info("Режим просмотра - для редактирования нажмите 'Войти с паролем' в боковой панели")
+    st.info("Режим просмотра- для редактирования нажмите 'Войти с паролем' в боковой панели")
 else:
     st.success("Режим редактирования - вы можете изменять словарь")
