@@ -6,12 +6,10 @@ import csv
 import io
 from datetime import datetime
 
-# ПАРОЛЬ для редактирования
-EDIT_PASSWORD = "greek1234"
-
 # Функция для проверки пароля
 def check_password(password):
-    return password == EDIT_PASSWORD
+    correct_password = st.secrets.get("EDIT_PASSWORD", "default_password")
+    return password == correct_password
 
 # Инициализация базы данных
 def init_db():
@@ -57,7 +55,7 @@ def migrate_db():
             # Старая структура - нужно мигрировать
             st.warning("Обновляем структуру базы данных...")
             
-            # Создаем новую таблицу с правильной структурой
+            # Создаем новую таблицу с правильной структуряой
             c.execute('''
                 CREATE TABLE words_new 
                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -312,7 +310,7 @@ with st.sidebar:
             if uploaded_file is not None:
                 json_data = uploaded_file.getvalue().decode('utf-8')
                 
-                if st.button("🔄 Импортировать данные", type="primary"):
+                if st.button("Импортировать данные", type="primary"):
                     success, message = import_data(json_data)
                     if success:
                         st.success(message)
@@ -390,7 +388,7 @@ if not texts_df.empty:
                                      (text['id'], lemma, forms, translation, comments))
                             conn.commit()
                             conn.close()
-                            st.success(f"Слово '{lemma}' добавлено в '{text['name']}'!")
+                            st.success(f"☃️ Слово '{lemma}' добавлено в '{text['name']}'!")
                             st.rerun()
             else:
                 st.info("Для добавления слов требуется пароль")
@@ -435,6 +433,6 @@ else:
 # Сообщение о режиме внизу
 st.write("---")
 if st.session_state.get('view_only'):
-    st.info("Режим просмотра- для редактирования нажмите 'Войти с паролем' в боковой панели")
+    st.info("Режим просмотра - для редактирования нажмите 'Войти с паролем' в боковой панели")
 else:
     st.success("Режим редактирования - вы можете изменять словарь")
