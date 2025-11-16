@@ -266,7 +266,7 @@ with st.sidebar:
             # Экспорт JSON
             json_data = export_data()
             st.download_button(
-                label="📥 Скачать JSON",
+                label="Скачать JSON",
                 data=json_data,
                 file_name=f"greek_dictionary_backup_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
                 mime="application/json"
@@ -353,7 +353,7 @@ if not texts_df.empty:
                         col1, col2 = st.columns(2)
                         
                         with col1:
-                            lemma = st.text_input("Лексема*", placeholder="λύω", key=f"lemma_{text['id']}")
+                            lemma = st.text_input("Лексема", placeholder="λύω", key=f"lemma_{text['id']}")
                             forms = st.text_area("Основные формы", placeholder="λύω, λύσω, ἔλυσα, λέλυκα...", key=f"forms_{text['id']}")
                         
                         with col2:
@@ -370,7 +370,7 @@ if not texts_df.empty:
                             st.success(f"Слово '{lemma}' добавлено в '{text['name']}'!")
                             st.rerun()
             else:
-                st.info("🔒 Для добавления слов требуется пароль")
+                st.info("Для добавления слов требуется пароль")
             
             # Поиск и отображение слов этого текста
             st.write("---")
@@ -392,7 +392,7 @@ if not texts_df.empty:
             conn.close()
             
             if not words.empty:
-                st.write(f"Слов в словаре:*{len(words)}")
+                st.write(f"Слов в словаре:{len(words)}")
                 for _, word in words.iterrows():
                     with st.expander(f"{word['lemma']} - {word['translation']}"):
                         # Режим просмотра
