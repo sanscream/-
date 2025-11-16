@@ -27,8 +27,7 @@ def init_db():
          lemma TEXT NOT NULL,
          forms TEXT,
          translation TEXT,
-         comments TEXT,
-         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)
+         comments TEXT)
     ''')
     
     # Автоматически создаем тексты если их нет
@@ -124,7 +123,7 @@ def export_data():
     texts_df = pd.read_sql("SELECT * FROM texts", conn)
     
     # Получаем слова
-    words_df = pd.read_sql("SELECT * FROM words ORDER BY created_at", conn)  # Старые сверху
+    words_df = pd.read_sql("SELECT * FROM words ORDER BY id", conn)  # Старые сверху
     
     conn.close()
     
@@ -145,7 +144,7 @@ def export_csv():
         SELECT w.*, t.name as text_name 
         FROM words w 
         LEFT JOIN texts t ON w.text_id = t.id
-        ORDER BY w.created_at  -- Старые сверху
+        ORDER BY w.id  -- Старые сверху
     ''', conn)
     
     conn.close()
@@ -408,12 +407,12 @@ if not texts_df.empty:
             # ФИКСИРОВАННАЯ СОРТИРОВКА: старые сверху, новые снизу
             if search:
                 words = pd.read_sql(
-                    "SELECT * FROM words WHERE text_id = ? AND (lemma LIKE ? OR translation LIKE ?) ORDER BY created_at",
+                    "SELECT * FROM words WHERE text_id = ? AND (lemma LIKE ? OR translation LIKE ?) ORDER BY id",
                     conn, params=(text['id'], f'%{search}%', f'%{search}%')
                 )
             else:
                 words = pd.read_sql(
-                    "SELECT * FROM words WHERE text_id = ? ORDER BY created_at",
+                    "SELECT * FROM words WHERE text_id = ? ORDER BY id",
                     conn, params=(text['id'],)
                 )
             conn.close()
