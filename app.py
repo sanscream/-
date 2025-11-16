@@ -415,7 +415,7 @@ if not texts_df.empty:
             if not words.empty:
                 st.write(f"Слов в словаре: {len(words)}")
                 for _, word in words.iterrows():
-                    with st.expander(f"word['lemma']} - {word['translation']}"):
+                    with st.expander(f"{word['lemma']} - {word['translation']}"):
                         col1, col2 = st.columns([3, 1])
                         with col1:
                             st.write(f"Формы: {word['forms'] or '-'}")
